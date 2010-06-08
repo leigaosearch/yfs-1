@@ -1,6 +1,7 @@
 *.[oad]
 *~
 *.log
+*.dSYM
 lock_demo
 lock_server
 lock_tester
@@ -9,3 +10,5 @@ extent_server
 yfs_client
 test-lab-4-b
 test-lab-4-c
+tags
+*.swp
