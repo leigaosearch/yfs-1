@@ -162,7 +162,8 @@ client2(void *xx)
 		std::string rep;
 		int ret = clients[which_cl]->call(25, arg, rep);
 		if ((int)rep.size()!=arg) {
-			printf("ask for %d reply got %d ret %d\n", arg, rep.size(), ret);
+			printf("ask for %d reply got %lu ret %d\n", arg,
+                    (unsigned long)rep.size(), ret);
 		}
 		assert((int)rep.size() == arg);
 	}
