@@ -44,6 +44,9 @@
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
+
+  inum creat(inum parent, std::string name);
+  int listdir(inum, std::vector<dirent> &);
 };
 
 #endif 

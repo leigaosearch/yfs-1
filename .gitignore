@@ -12,3 +12,5 @@ test-lab-4-b
 test-lab-4-c
 tags
 *.swp
+/yfs1
+/yfs2
