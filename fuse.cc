@@ -86,11 +86,14 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
     printf("   fuseserver_setattr set size to %ld\n", attr->st_size);
     struct stat st;
     // You fill this in
-#if 0
-    fuse_reply_attr(req, &st, 0);
-#else
-    fuse_reply_err(req, ENOSYS);
-#endif
+    yfs_client::inum inum = ino;
+    if (yfs->isfile(inum)) {
+      yfs->set_file_size(inum, attr->st_size);
+      getattr(inum, st);
+      fuse_reply_attr(req, &st, 0);
+    } else {
+      fuse_reply_err(req, EISDIR);
+    }
   } else {
     fuse_reply_err(req, ENOSYS);
   }
@@ -101,11 +104,30 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
       off_t off, struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_buf(req, buf, size);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
+    // we could do this more efficiently by combining all these
+    // operations in a single transaction
+    yfs_client::fileinfo fin;
+    if (yfs->getfile(inum, fin) == yfs_client::OK) {
+      if (off < 0 || off >= fin.size) {
+        fuse_reply_err(req, EINVAL);
+      } else {
+        char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
+        size_t bytes_read;
+        if (yfs->read(inum, buf, size, off, bytes_read) == yfs_client::OK) {
+          fuse_reply_buf(req, buf, size);
+        } else {
+          free(buf);
+          fuse_reply_err(req, EIO);
+        }
+      }
+    } else {
+      fuse_reply_err(req, EIO);
+    }
+  } else {
+    fuse_reply_err(req, EISDIR);
+  }
 }
 
 void
@@ -114,11 +136,15 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_write(req, bytes_written);
-#else
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
+    size_t bytes_written;
+    yfs->write(inum, buf, size, off, bytes_written);
+    fuse_reply_write(req, bytes_written);
+  } else {
+    fuse_reply_err(req, EISDIR);
+  }
   fuse_reply_err(req, ENOSYS);
-#endif
 }
 
 yfs_client::status
@@ -257,7 +283,8 @@ fuseserver_open(fuse_req_t req, fuse_ino_t ino,
      struct fuse_file_info *fi)
 {
   // You fill this in
-  if (yfs->isfile(ino)) {
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
     fuse_reply_open(req, fi);
   } else {
     fuse_reply_err(req, EISDIR);

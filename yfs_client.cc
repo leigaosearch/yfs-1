@@ -201,4 +201,56 @@ routine:
   return new_inum;
 }
 
+yfs_client::status
+yfs_client::set_file_size(inum inum, off_t new_size)
+{
+  status r = OK;
+  std::string buf;
+  if (ec->get(inum, buf) != extent_protocol::OK) {
+    r = IOERR;
+  } else {
+    buf.resize(new_size);
+    if (ec->put(inum, buf) != extent_protocol::OK) {
+      r = IOERR;
+    }
+  }
+  return r;
+}
+
+yfs_client::status
+yfs_client::read(inum inum, char *buf, size_t nbytes, off_t offset,
+        size_t &bytes_read)
+{
+  status r = OK;
+  std::string strbuf;
+  if (ec->get(inum, strbuf) == extent_protocol::OK) {
+    size_t can_read = strbuf.size() - offset;
+    bytes_read = can_read >= nbytes ? nbytes : can_read;
+    memcpy(buf, strbuf.c_str() + offset, bytes_read);
+  } else {
+    r = IOERR;
+  }
+  return r;
+}
+
+yfs_client::status
+yfs_client::write(inum inum, const char *buf, size_t nbytes, off_t offset,
+        size_t &bytes_written)
+{
+  status r = OK;
+  std::string strbuf;
+  if (ec->get(inum, strbuf) == extent_protocol::OK) {
+    size_t len = strbuf.size();
+    // first check if we need to resize the string
+    size_t end = offset + nbytes;
+    if (end > len) {
+      strbuf.resize(end);
+    }
+    strbuf.replace(offset, nbytes, buf, nbytes);
+    bytes_written = nbytes;
+  } else {
+    r = IOERR;
+  }
+  return r;
+}
 
