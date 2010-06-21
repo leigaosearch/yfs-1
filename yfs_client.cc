@@ -248,6 +248,9 @@ yfs_client::write(inum inum, const char *buf, size_t nbytes, off_t offset,
     }
     strbuf.replace(offset, nbytes, buf, nbytes);
     bytes_written = nbytes;
+    if (ec->put(inum, strbuf) != extent_protocol::OK) {
+        r = IOERR;
+    }
   } else {
     r = IOERR;
   }

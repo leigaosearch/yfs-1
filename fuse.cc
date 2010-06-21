@@ -89,8 +89,11 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
     yfs_client::inum inum = ino;
     if (yfs->isfile(inum)) {
       yfs->set_file_size(inum, attr->st_size);
-      getattr(inum, st);
-      fuse_reply_attr(req, &st, 0);
+      if (getattr(inum, st) == yfs_client::OK) {
+        fuse_reply_attr(req, &st, 0);
+      } else {
+        fuse_reply_err(req, EIO);
+      }
     } else {
       fuse_reply_err(req, EISDIR);
     }
@@ -113,14 +116,15 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
       if (off < 0 || off >= fin.size) {
         fuse_reply_err(req, EINVAL);
       } else {
-        char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
+        //char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
+        char *buf = new char[size];
         size_t bytes_read;
         if (yfs->read(inum, buf, size, off, bytes_read) == yfs_client::OK) {
           fuse_reply_buf(req, buf, size);
         } else {
-          free(buf);
           fuse_reply_err(req, EIO);
         }
+        delete [] buf;
       }
     } else {
       fuse_reply_err(req, EIO);
@@ -139,12 +143,14 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   yfs_client::inum inum = ino;
   if (yfs->isfile(inum)) {
     size_t bytes_written;
-    yfs->write(inum, buf, size, off, bytes_written);
-    fuse_reply_write(req, bytes_written);
+    if (yfs->write(inum, buf, size, off, bytes_written) == yfs_client::OK) {
+      fuse_reply_write(req, bytes_written);
+    } else {
+      fuse_reply_err(req, EIO);
+    }
   } else {
     fuse_reply_err(req, EISDIR);
   }
-  fuse_reply_err(req, ENOSYS);
 }
 
 yfs_client::status
@@ -285,6 +291,7 @@ fuseserver_open(fuse_req_t req, fuse_ino_t ino,
   // You fill this in
   yfs_client::inum inum = ino;
   if (yfs->isfile(inum)) {
+    // fill in fi->fh ?
     fuse_reply_open(req, fi);
   } else {
     fuse_reply_err(req, EISDIR);
