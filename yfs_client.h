@@ -46,6 +46,12 @@
 
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
+
+  inum creat(inum parent, std::string name);
+  int listdir(inum, std::vector<dirent> &);
+  status set_file_size(inum, off_t);
+  status read(inum, char *, size_t, off_t, size_t &);
+  status write(inum, const char *, size_t, off_t, size_t &);
 };
 
 #endif 

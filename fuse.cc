@@ -83,14 +83,20 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
 {
   printf("fuseserver_setattr 0x%x\n", to_set);
   if (FUSE_SET_ATTR_SIZE & to_set) {
-    printf("   fuseserver_setattr set size to %zu\n", attr->st_size);
+    printf("   fuseserver_setattr set size to %ld\n", attr->st_size);
     struct stat st;
     // You fill this in
-#if 0
-    fuse_reply_attr(req, &st, 0);
-#else
-    fuse_reply_err(req, ENOSYS);
-#endif
+    yfs_client::inum inum = ino;
+    if (yfs->isfile(inum)) {
+      yfs->set_file_size(inum, attr->st_size);
+      if (getattr(inum, st) == yfs_client::OK) {
+        fuse_reply_attr(req, &st, 0);
+      } else {
+        fuse_reply_err(req, EIO);
+      }
+    } else {
+      fuse_reply_err(req, EISDIR);
+    }
   } else {
     fuse_reply_err(req, ENOSYS);
   }
@@ -101,11 +107,31 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
       off_t off, struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_buf(req, buf, size);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
+    // we could do this more efficiently by combining all these
+    // operations in a single transaction
+    yfs_client::fileinfo fin;
+    if (yfs->getfile(inum, fin) == yfs_client::OK) {
+      if (off < 0 || off >= fin.size) {
+        fuse_reply_err(req, EINVAL);
+      } else {
+        //char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
+        char *buf = new char[size];
+        size_t bytes_read;
+        if (yfs->read(inum, buf, size, off, bytes_read) == yfs_client::OK) {
+          fuse_reply_buf(req, buf, size);
+        } else {
+          fuse_reply_err(req, EIO);
+        }
+        delete [] buf;
+      }
+    } else {
+      fuse_reply_err(req, EIO);
+    }
+  } else {
+    fuse_reply_err(req, EISDIR);
+  }
 }
 
 void
@@ -114,11 +140,17 @@ fuseserver_write(fuse_req_t req, fuse_ino_t ino,
   struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_write(req, bytes_written);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
+    size_t bytes_written;
+    if (yfs->write(inum, buf, size, off, bytes_written) == yfs_client::OK) {
+      fuse_reply_write(req, bytes_written);
+    } else {
+      fuse_reply_err(req, EIO);
+    }
+  } else {
+    fuse_reply_err(req, EISDIR);
+  }
 }
 
 yfs_client::status
@@ -126,7 +158,16 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
      mode_t mode, struct fuse_entry_param *e)
 {
   // You fill this in
-  return yfs_client::NOENT;
+  // Choose an inum and append it to the parent's entry table
+  int r = yfs_client::NOENT;
+
+  fuse_ino_t new_ino = (fuse_ino_t)yfs->creat(parent, name);
+  if (new_ino > 0) {
+    memset(e, 0, sizeof(struct fuse_entry_param));
+    e->ino = new_ino;
+    r = getattr(e->ino, e->attr);
+  }
+  return r;
 }
 
 void
@@ -165,6 +206,15 @@ fuseserver_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
   // `parent' in YFS. If the file was found, initialize e.ino and
   // e.attr appropriately.
 
+  yfs_client::inum item = yfs->ilookup(parent, name);
+  if (item) {
+    e.ino = (fuse_ino_t) item;
+    if (getattr(e.ino, e.attr) != yfs_client::OK) {
+      fuse_reply_err(req, ENOENT);
+    }
+    found = true;
+  }
+
   if (found)
     fuse_reply_entry(req, &e);
   else
@@ -193,7 +243,7 @@ void dirbuf_add(struct dirbuf *b, const char *name, fuse_ino_t ino)
 int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
           off_t off, size_t maxsize)
 {
-  if (off < bufsize)
+  if (off < (int)bufsize)
     return fuse_reply_buf(req, buf + off, min(bufsize - off, maxsize));
   else
     return fuse_reply_buf(req, NULL, 0);
@@ -219,6 +269,15 @@ fuseserver_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 
    // fill in the b data structure using dirbuf_add
 
+  // TODO re-design to eliminate the double loop here. perhaps referring
+  // to readdir_r as defined in dirent.h?
+   std::vector<yfs_client::dirent> entries;
+   if (yfs->listdir(inum, entries) == yfs_client::OK) {
+     std::vector<yfs_client::dirent>::iterator it;
+     for (it = entries.begin(); it != entries.end(); ++it) {
+       dirbuf_add(&b, it->name.c_str(), it->inum);
+     }
+   }
 
    reply_buf_limited(req, b.p, b.size, off, size);
    free(b.p);
@@ -230,11 +289,13 @@ fuseserver_open(fuse_req_t req, fuse_ino_t ino,
      struct fuse_file_info *fi)
 {
   // You fill this in
-#if 0
-  fuse_reply_open(req, fi);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  yfs_client::inum inum = ino;
+  if (yfs->isfile(inum)) {
+    // fill in fi->fh ?
+    fuse_reply_open(req, fi);
+  } else {
+    fuse_reply_err(req, EISDIR);
+  }
 }
 
 void
