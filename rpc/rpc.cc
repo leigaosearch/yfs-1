@@ -743,6 +743,14 @@ operator<<(marshall &m, unsigned long long x)
 	return m;
 }
 
+marshall &
+operator<<(marshall &m, long long int x)
+{
+  m << (unsigned int) ( x >> 32);
+  m << (unsigned int) x;
+  return m;
+}
+
 void
 marshall::pack(int x)
 {
@@ -852,6 +860,15 @@ operator>>(unmarshall &u, unsigned long long &x)
 	u >> l;
 	x = l | ((unsigned long long) h << 32);
 	return u;
+}
+
+unmarshall &
+operator>>(unmarshall &u, long long int &x)
+{
+  unsigned long long temp;
+  u >> temp;
+  x = static_cast<long long int>(temp);
+  return u;
 }
 
 unmarshall &

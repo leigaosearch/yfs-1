@@ -10,8 +10,7 @@
 
 extent_server::extent_server() {
   // init the root dir
-  int i;
-  put(1, "", i);
+  _put(1, "");
   pthread_mutex_init(&m, NULL);
 }
 
@@ -20,10 +19,7 @@ int extent_server::put(extent_protocol::extentid_t id, std::string buf, int &)
 {
   int r = extent_protocol::OK;
   pthread_mutex_lock(&m);
-  extent_entry &entry = extent_store[id];
-  entry.buf = buf;
-  time((time_t *)&entry.attr.mtime);
-  time((time_t *)&entry.attr.ctime);
+  _put(id, buf);
   pthread_mutex_unlock(&m);
   return r;
 }
@@ -68,5 +64,80 @@ int extent_server::remove(extent_protocol::extentid_t id, int &)
   int ret = extent_store.erase(id); 
   pthread_mutex_unlock(&m);
   return ret ? extent_protocol::OK : extent_protocol::NOENT;
+}
+
+int extent_server::pget(extent_protocol::extentid_t id, off_t offset,
+          size_t nbytes, std::string &buf)
+{
+  extent_protocol::status ret = extent_protocol::NOENT;
+  pthread_mutex_lock(&m);
+  if (extent_store.find(id) != extent_store.end()) {
+    extent_entry &entry = extent_store[id];
+    size_t len = entry.buf.size();
+    if (offset < len) {
+      size_t can_read = len - offset;
+      size_t actual_read = can_read > nbytes ? nbytes : can_read;
+      buf = entry.buf.substr(offset, actual_read);
+      ret = extent_protocol::OK;
+    } else {
+      ret = extent_protocol::IOERR; 
+    }
+  }
+  pthread_mutex_unlock(&m);
+  return ret;
+}
+
+int extent_server::update(extent_protocol::extentid_t id, std::string data,
+        off_t offset, size_t &bytes_written)
+{
+  extent_protocol::status ret = extent_protocol::NOENT;
+  pthread_mutex_lock(&m);
+  if (extent_store.find(id) != extent_store.end()) {
+    extent_entry &entry = extent_store[id]; 
+    size_t len = entry.buf.size();
+    size_t nbytes = data.size();
+    size_t end = offset + nbytes;
+    if (end > len) {
+      // we need to resize the string 
+      entry.buf.resize(end);
+    }
+    entry.buf.replace(offset, nbytes, data);
+    bytes_written = nbytes;
+    ret = extent_protocol::OK;
+  }
+  pthread_mutex_unlock(&m);
+  return ret;
+}
+
+int extent_server::resize(extent_protocol::extentid_t id, off_t new_size,
+    int &r)
+{
+  extent_protocol::status ret = extent_protocol::NOENT;
+  pthread_mutex_lock(&m);
+  if (extent_store.find(id) != extent_store.end()) {
+    extent_entry &entry = extent_store[id];
+    entry.buf.resize(new_size);
+    ret = extent_protocol::OK;
+    r = new_size;
+  }
+  pthread_mutex_unlock(&m);
+  return ret;
+}
+
+// assume we have obtained the lock
+void extent_server::_put(extent_protocol::extentid_t id,
+    std::string &buf)
+{
+  extent_entry &entry = extent_store[id];
+  entry.buf = buf;
+  time((time_t *)&entry.attr.mtime);
+  time((time_t *)&entry.attr.ctime);
+}
+
+void extent_server::_put(extent_protocol::extentid_t id,
+    const char *buf)
+{
+  std::string temp(buf);
+  _put(id, temp);
 }
 
