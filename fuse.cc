@@ -88,7 +88,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
     // You fill this in
     yfs_client::inum inum = ino;
     if (yfs->isfile(inum)) {
-      yfs->set_file_size(inum, attr->st_size);
+      yfs->resize(inum, attr->st_size);
       if (getattr(inum, st) == yfs_client::OK) {
         fuse_reply_attr(req, &st, 0);
       } else {
