@@ -148,11 +148,12 @@ yfs_client::listdir(inum inum, std::vector<dirent> &entries)
   return r;
 }
 
-yfs_client::inum
-yfs_client::creat(inum parent, std::string name)
+yfs_client::status
+yfs_client::creat(inum parent, std::string name, inum &new_inum)
 {
+  // TODO check if a file with the given name already exists
   std::string buf;
-  inum new_inum = -1;
+  yfs_client::status r = yfs_client::OK;
   extent_protocol::status ret;
   ret = ec->get(parent, buf);
   if (ret == extent_protocol::OK) {
@@ -198,8 +199,16 @@ routine:
     // update parent's buf
     buf = os.str();
     ec->put(parent, buf);
+  } else {
+    r = IOERR;
   }
-  return new_inum;
+  return r;
+}
+
+yfs_client::status
+yfs_client::mkdir(inum parent, const char * dname, inum &new_inum)
+{
+
 }
 
 yfs_client::status

@@ -113,7 +113,7 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     // operations in a single transaction
     yfs_client::fileinfo fin;
     if (yfs->getfile(inum, fin) == yfs_client::OK) {
-      if (off < 0 || off >= fin.size) {
+      if (off < 0 || off >= (off_t)fin.size) {
         fuse_reply_err(req, EINVAL);
       } else {
         //char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
@@ -161,9 +161,10 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   // Choose an inum and append it to the parent's entry table
   int r = yfs_client::NOENT;
 
-  fuse_ino_t new_ino = (fuse_ino_t)yfs->creat(parent, name);
-  if (new_ino > 0) {
+  yfs_client::inum new_inum;
+  if (yfs->creat(parent, name, new_inum) == yfs_client::OK) {
     memset(e, 0, sizeof(struct fuse_entry_param));
+    fuse_ino_t new_ino = (fuse_ino_t)new_inum;
     e->ino = new_ino;
     r = getattr(e->ino, e->attr);
   }
@@ -305,11 +306,18 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   struct fuse_entry_param e;
 
   // You fill this in
-#if 0
-  fuse_reply_entry(req, &e);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  memset(&e, 0, sizeof(e));
+  yfs_client::inum inum = parent;
+  if (yfs->isdir(inum)) {
+    yfs_client::inum new_inum;
+    yfs->mkdir(parent, name, new_inum);
+    fuse_ino_t new_ino = (fuse_ino_t)new_inum;
+    e.ino = new_ino;
+    getattr(new_ino, e.attr);
+    fuse_reply_entry(req, &e);
+  } else {
+    fuse_reply_err(req, ENOTDIR);
+  }
 }
 
 void

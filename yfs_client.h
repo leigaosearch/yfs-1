@@ -14,7 +14,7 @@
  public:
 
   typedef unsigned long long inum;
-  enum xxstatus { OK, RPCERR, NOENT, IOERR, FBIG };
+  enum xxstatus { OK, RPCERR, NOENT, IOERR, FBIG, FEXIST };
   typedef int status;
 
   struct fileinfo {
@@ -47,11 +47,12 @@
   int getfile(inum, fileinfo &);
   int getdir(inum, dirinfo &);
 
-  inum creat(inum parent, std::string name);
+  int creat(inum parent, std::string name, inum &);
   int listdir(inum, std::vector<dirent> &);
   status resize(inum, off_t);
   status read(inum, char *, size_t, off_t, size_t &);
   status write(inum, const char *, size_t, off_t, size_t &);
+  status mkdir(inum parent, const char *dirname, inum &);
 };
 
 #endif 
