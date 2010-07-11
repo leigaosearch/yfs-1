@@ -32,6 +32,7 @@ class extent_server {
   int update(extent_protocol::extentid_t id, std::string data,
           off_t offset, size_t &bytes_written);
   int resize(extent_protocol::extentid_t, off_t new_size, int &);
+  int poke(extent_protocol::extentid_t, int &);
 
  private:
   std::map<extent_protocol::extentid_t, extent_entry> extent_store;

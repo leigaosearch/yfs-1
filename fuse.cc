@@ -310,11 +310,19 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   yfs_client::inum inum = parent;
   if (yfs->isdir(inum)) {
     yfs_client::inum new_inum;
-    yfs->mkdir(parent, name, new_inum);
-    fuse_ino_t new_ino = (fuse_ino_t)new_inum;
-    e.ino = new_ino;
-    getattr(new_ino, e.attr);
-    fuse_reply_entry(req, &e);
+    yfs_client::status ret = yfs->mkdir(parent, name, new_inum);
+    if (ret == yfs_client::OK) {
+      fuse_ino_t new_ino = (fuse_ino_t)new_inum;
+      e.ino = new_ino;
+      getattr(new_ino, e.attr);
+      fuse_reply_entry(req, &e);
+    } else if (ret == yfs_client::FEXIST) {
+      fuse_reply_err(req, EEXIST);
+    } else if (ret == yfs_client::NOENT) {
+      fuse_reply_err(req, ENOENT);
+    } else {
+      fuse_reply_err(req, ENOSYS);
+    }
   } else {
     fuse_reply_err(req, ENOTDIR);
   }
@@ -326,8 +334,11 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
   // You fill this in
   // Success:	fuse_reply_err(req, 0);
-  // Not found:	fuse_reply_err(req, ENOENT);
-  fuse_reply_err(req, ENOSYS);
+  if (yfs->remove(parent, name) == yfs_client::OK) {
+    fuse_reply_err(req, 0);
+  } else {
+    fuse_reply_err(req, ENOENT);
+  }
 }
 
 void

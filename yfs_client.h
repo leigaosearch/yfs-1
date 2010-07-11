@@ -53,6 +53,7 @@
   status read(inum, char *, size_t, off_t, size_t &);
   status write(inum, const char *, size_t, off_t, size_t &);
   status mkdir(inum parent, const char *dirname, inum &);
+  status remove(inum parent, const char *dirname);
 };
 
 #endif 

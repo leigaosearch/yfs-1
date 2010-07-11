@@ -208,7 +208,58 @@ routine:
 yfs_client::status
 yfs_client::mkdir(inum parent, const char * dname, inum &new_inum)
 {
+  std::string buf;
+  yfs_client::status r = yfs_client::OK;
+  extent_protocol::status ret;
+  ret = ec->get(parent, buf);
+  if (ret == extent_protocol::OK) {
+routine:
+    new_inum = (inum)(random() & 0x7fffffff);
+    std::istringstream is(buf);
+    std::ostringstream os;
+    std::string line;
 
+    bool inserted = false;
+    int i = 0;
+    while (getline(is, line)) {
+      if (line != "") {
+        size_t len = line.length();
+        std::string::size_type colon_pos;
+        colon_pos = line.find(':');
+        if (colon_pos != std::string::npos && colon_pos != 0 &&
+            colon_pos != len - 1) {
+          inum cur = atol(line.substr(colon_pos+1).c_str());
+          if (cur == new_inum) {
+            // collision
+            goto routine;
+          }
+          if (cur > new_inum && !inserted) {
+            // insert a line in this place
+            os << dname << ":" << new_inum << std::endl;
+            ec->put(new_inum, "");
+            inserted = true;
+          }
+          os << line << std::endl;
+          i++;
+        } else {
+          printf("malformed line in directory %llx meta: %s\n", parent,
+              line.c_str());
+        }
+      }
+    }
+    if (!inserted) {
+      // do we need to handle . and ..??
+      os << dname << ":" << new_inum << std::endl;
+      ec->put(new_inum, "");
+    }
+
+    // update parent's buf
+    buf = os.str();
+    ec->put(parent, buf);
+  } else {
+    r = IOERR;
+  }
+  return r;
 }
 
 yfs_client::status
@@ -252,6 +303,44 @@ yfs_client::write(inum inum, const char *buf, size_t nbytes, off_t offset,
     return NOENT;
   } else {
     return IOERR;
+  }
+}
+
+yfs_client::status
+yfs_client::remove(inum parent, const char *name)
+{
+  std::string buf;
+  if (ec->get(parent, buf) == extent_protocol::OK) {
+    std::istringstream is(buf);
+    std::ostringstream os;
+    std::string line;
+
+    inum to_remove = 0;
+    while (getline(is, line)) {
+      if (line != "") {
+        size_t len = line.length();
+        std::string::size_type colon_pos;
+        colon_pos = line.find(':');
+        if (colon_pos != std::string::npos && colon_pos != 0 &&
+            colon_pos != len - 1) {
+          printf("comparing %s and %s\n", name, line.substr(0, colon_pos+1));
+          if (strncmp(name, line.c_str(), colon_pos+1) != 0) {
+            os << line << std::endl;
+          } else {
+            to_remove = atol(line.substr(colon_pos+1).c_str());
+            printf("i got you! removing %llu\n", to_remove);
+          }
+        }
+      }
+    }
+    if (to_remove && ec->remove(to_remove) == extent_protocol::OK &&
+        ec->put(parent, os.str()) == extent_protocol::OK) {
+      return OK;
+    } else {
+      return IOERR;
+    }
+  } else {
+    return NOENT;
   }
 }
 
