@@ -172,7 +172,9 @@ routine:
         colon_pos = line.find(':');
         if (colon_pos != std::string::npos && colon_pos != 0 &&
             colon_pos != len - 1) {
-          inum cur = atol(line.substr(colon_pos+1).c_str());
+          inum cur;
+          std::istringstream inum_parser(line);
+          inum_parser >> cur;
           if (cur == new_inum) {
             // collision
             goto routine;
@@ -228,7 +230,9 @@ routine:
         colon_pos = line.find(':');
         if (colon_pos != std::string::npos && colon_pos != 0 &&
             colon_pos != len - 1) {
-          inum cur = atol(line.substr(colon_pos+1).c_str());
+          inum cur;
+          std::istringstream inum_parser(line.substr(colon_pos+1));
+          inum_parser >> cur;
           if (cur == new_inum) {
             // collision
             goto routine;
@@ -323,21 +327,33 @@ yfs_client::remove(inum parent, const char *name)
         colon_pos = line.find(':');
         if (colon_pos != std::string::npos && colon_pos != 0 &&
             colon_pos != len - 1) {
-          printf("comparing %s and %s\n", name, line.substr(0, colon_pos+1));
-          if (strncmp(name, line.c_str(), colon_pos+1) != 0) {
-            os << line << std::endl;
+          std::string cur_name = line.substr(0, colon_pos);
+          if (to_remove == 0) {
+            // we haven't yet found the entry to remove
+            if (strcmp(cur_name.c_str(), name) == 0) {
+              // okay, we find it now
+              std::istringstream inum_parser(line.substr(colon_pos+1));
+              inum_parser >> to_remove;
+            } else {
+              os << line << std::endl;
+            }
           } else {
-            to_remove = atol(line.substr(colon_pos+1).c_str());
-            printf("i got you! removing %llu\n", to_remove);
+            // since the entry to remove is found already, we don't need
+            // to perform string comparison any more
+            os << line << std::endl;
           }
         }
       }
     }
-    if (to_remove && ec->remove(to_remove) == extent_protocol::OK &&
-        ec->put(parent, os.str()) == extent_protocol::OK) {
-      return OK;
+    if (to_remove) {
+      if (ec->remove(to_remove) == extent_protocol::OK &&
+          ec->put(parent, os.str()) == extent_protocol::OK) {
+        return OK;
+      } else {
+        return IOERR;
+      }
     } else {
-      return IOERR;
+      return NOENT;
     }
   } else {
     return NOENT;
