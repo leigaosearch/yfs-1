@@ -11,6 +11,7 @@
 
   class yfs_client {
   extent_client *ec;
+  lock_client   *lc;
  public:
 
   typedef unsigned long long inum;
@@ -39,6 +40,7 @@
  public:
 
   yfs_client(std::string, std::string);
+  ~yfs_client();
 
   bool isfile(inum);
   bool isdir(inum);

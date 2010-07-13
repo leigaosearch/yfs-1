@@ -83,7 +83,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
 {
   printf("fuseserver_setattr 0x%x\n", to_set);
   if (FUSE_SET_ATTR_SIZE & to_set) {
-    printf("   fuseserver_setattr set size to %ld\n", attr->st_size);
+    printf("   fuseserver_setattr set size to %lld\n", attr->st_size);
     struct stat st;
     // You fill this in
     yfs_client::inum inum = ino;
