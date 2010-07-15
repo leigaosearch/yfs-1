@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define max(a,b) ((a>b)?a:b)
+#define yfs_max(a,b) ((a>b)?a:b)
 
 struct req_header {
 	req_header(int x=0, int p=0, int c = 0, int s = 0, int xi = 0):
@@ -36,9 +36,9 @@ enum {
 	DEFAULT_RPC_SZ = 1024,
 #if RPC_CHECKSUMMING
 	//size of rpc_header includes a 4-byte int to be filled by tcpchan and uint64_t checksum
-	RPC_HEADER_SZ = max(sizeof(req_header), sizeof(reply_header)) + sizeof(rpc_sz_t) + sizeof(rpc_checksum_t)
+	RPC_HEADER_SZ = yfs_max(sizeof(req_header), sizeof(reply_header)) + sizeof(rpc_sz_t) + sizeof(rpc_checksum_t)
 #else
-		RPC_HEADER_SZ = max(sizeof(req_header), sizeof(reply_header)) + sizeof(rpc_sz_t)
+		RPC_HEADER_SZ = yfs_max(sizeof(req_header), sizeof(reply_header)) + sizeof(rpc_sz_t)
 #endif
 };
 
@@ -117,6 +117,7 @@ marshall& operator<<(marshall &, char);
 marshall& operator<<(marshall &, unsigned short);
 marshall& operator<<(marshall &, short);
 marshall& operator<<(marshall &, unsigned long long);
+marshall& operator<<(marshall &, long long int);
 marshall& operator<<(marshall &, const std::string &);
 
 class unmarshall {
@@ -182,6 +183,7 @@ unmarshall& operator>>(unmarshall &, short &);
 unmarshall& operator>>(unmarshall &, unsigned int &);
 unmarshall& operator>>(unmarshall &, int &);
 unmarshall& operator>>(unmarshall &, unsigned long long &);
+unmarshall& operator>>(unmarshall &, long long int &);
 unmarshall& operator>>(unmarshall &, std::string &);
 
 template <class C> marshall &
