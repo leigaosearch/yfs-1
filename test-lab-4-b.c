@@ -252,6 +252,7 @@ dircheck(const char *d, int nf)
       if(nnames >= sizeof(names)/sizeof(names[0])){
         fprintf(stderr, "warning: too many files in %s\n", d);
       }
+      printf("dircheck: %s\n", e->d_name);
       names[nnames] = (char *) malloc(strlen(e->d_name) + 1);
       strcpy(names[nnames], e->d_name);
       nnames++;

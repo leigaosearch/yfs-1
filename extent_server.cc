@@ -127,7 +127,7 @@ int extent_server::resize(extent_protocol::extentid_t id, off_t new_size,
   return ret;
 }
 
-int extent_server::poke(extent_protocol::extentid_t id, int &)
+int extent_server::poke(extent_protocol::extentid_t id, int &unused)
 {
   extent_protocol::status ret = extent_protocol::NOENT;
   pthread_mutex_lock(&m);

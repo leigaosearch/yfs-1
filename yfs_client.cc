@@ -42,6 +42,97 @@ yfs_client::filename(inum inum)
   return ost.str();
 }
 
+bool 
+yfs_client::dir_add_entry(inum parent, const char *name, bool is_file,
+    inum &entry_inum)
+{
+  inum i = 0;
+
+  std::string buf;
+  bool fexists = false;
+  if (lc->acquire(parent) == lock_protocol::OK) {
+    if (ec->get(parent, buf) == extent_protocol::OK) {
+      std::ostringstream os;
+      std::istringstream is(buf);
+
+      std::string line;
+      while (getline(is, line)) {
+        size_t len = line.length();
+        if (len > 0) {
+          std::string::size_type colon_pos;
+          colon_pos = line.find(':');
+          if (colon_pos != std::string::npos && colon_pos != 0 &&
+              colon_pos != len - 1) {
+            const char *cur_name = line.substr(0, colon_pos).c_str();
+            if (i == 0) {
+              // new entry not inserted yet
+              int cmp_result = strcmp(cur_name, name);
+              if (cmp_result == 0) {
+                // file/dir already exists
+                fexists = true;
+                std::istringstream inum_parser(line.substr(colon_pos+1));
+                inum_parser >> i;
+                break;
+              } else if (cmp_result > 0) {
+                i = this->new_inum(parent, is_file);
+                assert(i > 0);
+                os << name << ":" << i << std::endl;
+              }
+            }
+          }
+          os << line << std::endl;
+        }
+      }
+      if (!fexists && i == 0) {
+        // append to the end of the dir buf
+        i = this->new_inum(parent, is_file);
+        assert(i > 0);
+        os << name << ":" << i << std::endl;
+      }
+
+      if (!fexists) {
+        // changes made, so update the dir buf
+        ec->put(parent, os.str());
+      }
+      if (i > 0) {
+        entry_inum = i;
+      }
+    }
+    lc->release(parent);
+  }
+  return !fexists;
+}
+
+yfs_client::inum
+yfs_client::new_inum(inum parent, bool is_file)
+{
+  inum i = 0;
+
+assign:
+  if (is_file) {
+    i = random() | 0x80000000;
+  } else {
+    i = random() & 0x7fffffff;
+  }
+
+  if (i <=1 || i == parent) {
+    // do it again
+    goto assign;
+  }
+  // acquire a lock on i to keep other clients from using this inum
+  if (lc->acquire(i) == lock_protocol::OK) {
+    if (ec->poke(i) != extent_protocol::NOENT) {
+      // inum already exists
+      lc->release(i);
+      goto assign;
+    } else {
+      ec->put(i, "");
+      lc->release(i);
+    }
+  }
+  return i;
+}
+
 bool
 yfs_client::isfile(inum inum)
 {
@@ -156,7 +247,8 @@ yfs_client::listdir(inum inum, std::vector<dirent> &entries)
             entries.clear();
             printf("malformed line in directory %llu meta: %s\n", inum,
                 line.c_str());
-            r = RPCERR;
+            r = IOERR;
+            break;
           }
         }
       }
@@ -164,7 +256,6 @@ yfs_client::listdir(inum inum, std::vector<dirent> &entries)
       r = IOERR;
     }
     lc->release(inum);
-    printf("listdir releae %llu\n", inum);
   } else {
     r = IOERR;
   }
@@ -172,130 +263,27 @@ yfs_client::listdir(inum inum, std::vector<dirent> &entries)
 }
 
 yfs_client::status
-yfs_client::creat(inum parent, std::string name, inum &new_inum)
+yfs_client::create(inum parent, std::string name, inum &new_inum)
 {
-  // TODO check if a file with the given name already exists
-  std::string buf;
-  yfs_client::status r = yfs_client::OK;
-  extent_protocol::status ret;
-  if (lc->acquire(parent) == lock_protocol::OK) {
-    ret = ec->get(parent, buf);
-    if (ret == extent_protocol::OK) {
-routine:
-      new_inum = (inum)(random() | 0x80000000);
-      std::istringstream is(buf);
-      std::ostringstream os;
-      std::string line;
-
-      bool inserted = false;
-      int i = 0;
-      while (getline(is, line)) {
-        if (line != "") {
-          size_t len = line.length();
-          std::string::size_type colon_pos;
-          colon_pos = line.find(':');
-          if (colon_pos != std::string::npos && colon_pos != 0 &&
-              colon_pos != len - 1) {
-            inum cur;
-            std::istringstream inum_parser(line);
-            inum_parser >> cur;
-            if (cur == new_inum) {
-              // collision
-              goto routine;
-            }
-            if (cur > new_inum && !inserted) {
-              // insert a line in this place
-              os << name << ":" << new_inum << std::endl;
-              ec->put(new_inum, "");
-              inserted = true;
-            }
-            os << line << std::endl;
-            i++;
-          } else {
-            printf("malformed line in directory %llx meta: %s\n", parent,
-                line.c_str());
-          }
-        }
-      }
-      if (!inserted) {
-        os << name << ":" << new_inum << std::endl;
-        ec->put(new_inum, "");
-      }
-
-      // update parent's buf
-      ec->put(parent, os.str());
-    } else {
-      r = IOERR;
-    }
-    lc->release(parent);
+  if (dir_add_entry(parent, name.c_str(), true, new_inum)) {
+    return OK;
   } else {
-    r = IOERR;
+    // XXX error handling...  return OK;
+    return FEXIST;
   }
-  return r;
 }
 
 yfs_client::status
 yfs_client::mkdir(inum parent, const char * dname, inum &new_inum)
 {
-  std::string buf;
-  yfs_client::status r = yfs_client::OK;
-  extent_protocol::status ret;
-  if (lc->acquire(parent) == lock_protocol::OK) {
-    ret = ec->get(parent, buf);
-    if (ret == extent_protocol::OK) {
-  routine:
-      new_inum = (inum)(random() & 0x7fffffff);
-      std::istringstream is(buf);
-      std::ostringstream os;
-      std::string line;
-
-      bool inserted = false;
-      int i = 0;
-      while (getline(is, line)) {
-        if (line != "") {
-          size_t len = line.length();
-          std::string::size_type colon_pos;
-          colon_pos = line.find(':');
-          if (colon_pos != std::string::npos && colon_pos != 0 &&
-              colon_pos != len - 1) {
-            inum cur;
-            std::istringstream inum_parser(line.substr(colon_pos+1));
-            inum_parser >> cur;
-            if (cur == new_inum) {
-              // collision
-              goto routine;
-            }
-            if (cur > new_inum && !inserted) {
-              // insert a line in this place
-              os << dname << ":" << new_inum << std::endl;
-              ec->put(new_inum, "");
-              inserted = true;
-            }
-            os << line << std::endl;
-            i++;
-          } else {
-            printf("malformed line in directory %llx meta: %s\n", parent,
-                line.c_str());
-          }
-        }
-      }
-      if (!inserted) {
-        // do we need to handle . and ..??
-        os << dname << ":" << new_inum << std::endl;
-        ec->put(new_inum, "");
-      }
-
-      // update parent's buf
-      buf = os.str();
-      ec->put(parent, buf);
-    } else {
-      r = IOERR;
+  if (dir_add_entry(parent, dname, false, new_inum)) {
+    if (new_inum == 0) {
+      return NOENT;
     }
-    lc->release(parent);
+    return OK;
   } else {
-    r = IOERR;
+    return FEXIST;
   }
-  return r;
 }
 
 yfs_client::status

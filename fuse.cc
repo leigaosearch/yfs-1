@@ -161,11 +161,12 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   // Choose an inum and append it to the parent's entry table
   int r = yfs_client::NOENT;
 
-  yfs_client::inum new_inum;
-  if (yfs->creat(parent, name, new_inum) == yfs_client::OK) {
+  yfs_client::inum entry_inum;
+  r = yfs->create(parent, name, entry_inum);
+  if (r == yfs_client::OK || r == yfs_client::FEXIST) {
+    // it's okay for creat() that a file already exists
     memset(e, 0, sizeof(struct fuse_entry_param));
-    fuse_ino_t new_ino = (fuse_ino_t)new_inum;
-    e->ino = new_ino;
+    e->ino = (fuse_ino_t)entry_inum;
     r = getattr(e->ino, e->attr);
   }
   return r;
@@ -176,7 +177,8 @@ fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
    mode_t mode, struct fuse_file_info *fi)
 {
   struct fuse_entry_param e;
-  if( fuseserver_createhelper( parent, name, mode, &e ) == yfs_client::OK ) {
+  yfs_client::status r = fuseserver_createhelper(parent, name, mode, &e);
+  if( r == yfs_client::OK ) {
     fuse_reply_create(req, &e, fi);
   } else {
     fuse_reply_err(req, ENOENT);
