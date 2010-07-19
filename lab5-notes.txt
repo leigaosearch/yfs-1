@@ -1,0 +1,107 @@
+* Suppose the following happens: Client A releases a lock that client B
+  wants. The server sends a retry RPC to client B. Then, before client B
+  can send another acquire to the server, client C sends an acquire to the
+  server. What happens in this case?
+
+Basically, there are two choices for the server - either to immdiately
+accept C's acquire request, or to wait for B's retry. The former choice is
+simple to implement, but might be unfair for B since its acquire request
+came earlier than C's. The latter one, however, is less efficient because
+it may take a while for B to respond to the server's retry notification.
+
+Detailed analysis:
+I.  Server satisfies C. C caches the lock. Server needs to immediately send
+a revoke to C to give B another chance to retry (2 RPCs involved).
+II. Server responds to C with RETRY, and then waits for B's acquire. After
+B gets the lock, server sends a r
+
+
+* If the server receives an acquire for a lock that is cached at another
+  client, what is that the handler going to do? Remember the handler
+  shouldn't block or invoke RPCs.
+
+The handler should instaneously give an RETRY reply and then adds a revoke
+request to the queue. Sooner or later, the revoke request will be processed
+and the server will send an revoke RPC to the client that is holding the
+lock at that time.
+
+* If the server receives a release RPC, and there is an outstanding acquire
+  from another client, what is the handler going to do? Remember again that
+  the handler shouldn't block or invoke RPCs.
+
+The ``release'' handler simply marks the specific lock as free and returns
+OK to the RPC caller. While doing this, it ought to obtain the mutex, which
+will cause the the acquire handler to temporarily block, which needs to
+read the lock status. So after the release handler finishes its job, the
+acquire handler will notice that the demanded lock is available.
+
+If the acquire handler obtains the mutex before the release handler does,
+then a RETRY will be returned to the lock requester, though the server
+will send a retry to it soon after noticing that the desired lock becomes
+available.
+
+* If a thread on the client is holding a lock and a second thread calls
+  acquire(), what happens? You shouldn't need to send an RPC to the server.
+
+By using a conditional variable, the second thread blocks until that lock
+is released by the thread who currently holds the lock.
+
+* How do you handle a revoke on a client when a thread on the client is
+  holding the lock?
+
+First, the revoke handler on the client should add the revoke message to
+a queue, which is processed by a background thread. Second, the processing
+thread should wait until the thread that holds the lock releases the lock
+locally and signals all the threads waiting for status change of that lock.
+
+* If a thread on the client is holding a lock, and a second thread calls
+  acquire(), but there has also been a revoke for this lock, what happens?
+  Other clients trying to acquire the lock should have a fair chance of
+  obtaining it; if two threads on the current node keep competing for the
+  lock, the node should not hold the lock forever.
+
+Whenever the status of a lock changes (e.g., from LOCKED to FREE or from
+FREE to REVOKED), certain conditional variables should be signaled.
+
+* How do you handle a retry showing up on the client before the response on the corresponding acquire?
+
+If the sequence number carried by the retry is
+
+1) smaller than last_seq, it can be silently ignored.
+2) same as last_seq, then it means the acquire whose response hasn't arrived
+failed on the server. So it is safe to add a retry entry to the queue on the
+client without the need to check the return value of the acquire.
+What if we don't handle this situation as a special case? The retry RPC will
+cause a new retry entry to be enqueued, and lock_client_cache::acquire() is
+blocked after it receives RETRY .
+
+The implication is that the requested lock becomes available right after the
+server returns a RETRY to the client.
+
+* How do you handle a revoke showing up on the client before the response
+  on the corresponding acquire?
+
+The client should be able to use that lock anyway. The revoke is effective
+only if the status of that lock is not ACQUIRING and the sequence number it
+carries equals to the current last_seq. If a revoke carries a smaller number
+than the current last_seq, it means this revoke is a duplicate and the
+client has already released that lock upon receiving an earlier revoke
+carrying the same sequence number. Further, if we don't allow the server
+to send duplicate revoke messages, then the sequence number of each revoke
+should always equal to last_seq on every client.
+
+* When do you increase a sequence number on the client? Do you have one
+  sequence number per lock_client object or one per client machine?
+
+The sequence number is incremented each time the lock_client_cache issues
+an acquire RPC to the server. For each lock id, the client can only send an
+acquire to the server if it is not holding that lock. I intend to have one
+sequence number per lock_client.
+
+* If the server grants the lock to a client and it has a number of other
+  clients also interested in that lock, you may want to indicate in the
+  reply to the acquire that the client should return the lock to the server
+  as soon as the thread on the client calls release(). How would you keep
+  track on the client that the thread's release() also results in the lock
+  being returned to the server? (You could alternatively send a revoke RPC
+  immediately after granting the lock in this case.) 

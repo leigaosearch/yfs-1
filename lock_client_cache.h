@@ -68,6 +68,22 @@ class lock_release_user {
 // has been received.
 //
 
+struct cached_lock {
+
+  enum lock_status {
+    FREE, LOCKED, ACQUIRING, RELEASING
+  };
+
+  pthread_mutex_t m;
+  pthread_cond_t can_retry_cv;
+  pthread_cond_t free_cv; // lock is released by other threads
+  lock_status status;
+  pthread_t owner;
+
+  cached_lock();
+  ~cached_lock();
+};
+
 
 class lock_client_cache : public lock_client {
  private:
@@ -76,13 +92,24 @@ class lock_client_cache : public lock_client {
   std::string hostname;
   std::string id;
 
+  int last_seq; // the sequence no. of the last acquire RPC
+  std::map<lock_protocol::lockid_t, pthread_t> cached_locks;
+  std::list<lock_protocol::lockid_t> revoke_queue;
+  pthread_mutex_t revoke_m;
+  pthread_mutex_t m;
+
  public:
   static int last_port;
   lock_client_cache(std::string xdst, class lock_release_user *l = 0);
   virtual ~lock_client_cache() {};
-  lock_protocol::status acquire(lock_protocol::lockid_t);
+  virtual lock_protocol::status acquire(lock_protocol::lockid_t);
   virtual lock_protocol::status release(lock_protocol::lockid_t);
   void releaser();
+
+  rlock_protocol::status revoke();
+  // tell this client to retry requesting the lock in which this client
+  // was interest when that lock just became available
+  rlock_protocol::status retry();
 };
 #endif
 
