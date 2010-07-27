@@ -93,6 +93,7 @@ lock_client_cache::~lock_client_cache()
 {
   int unused;
   pthread_mutex_lock(&m);
+  printf("[%d] lock_client_cache dtor\n", cl->id());
   std::map<lock_protocol::lockid_t, cached_lock>::iterator itr;
   for (itr = cached_locks.begin(); itr != cached_locks.end(); ++itr) {
     if (itr->second.status() == cached_lock::FREE) {
@@ -163,7 +164,7 @@ lock_client_cache::releaser()
     // if remote release fails, we leave this lock in the revoke_map, which
     // will be released in a later attempt
     pthread_mutex_unlock(&m);
-    usleep(500);
+    //usleep(500);
   }
 }
 
