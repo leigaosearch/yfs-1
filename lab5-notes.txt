@@ -2,23 +2,23 @@
 Overview
 --------
 
-A lock is the central object of thread competetion. Several thread compete
-for changing its status, which are: acquire, release, revoker, and releaser.
-Naturally, each lock is protected by a mutex, and a conditional variable
-is used to synchronize events among threads.
+The most part of the complexity lies in the client side. In a client, a lock
+is the central object of thread competetion. Several thread compete for
+changing its status, which are: acquire, release, revoker, and releaser.
+In this implementation, the whole lock_client_cache object is protected by
+a global mutex, and for each lock, we use a conditional variable to monitor
+the state updates.
 
 acquire, release, revoke, and retry messages have semantic orders. Since
 the underlying RPC layer does not support ordered delivery, we are going to
-add this feature on top of it by using sequence numbers in each RPC.
+add this feature on top of it by using sequence numbers in each RPC. A
+revoke message only revokes a lock after the client has used the lock at
+least once which is requested by an acquire with the same sequence number.
+The client retries acquisition only after it has received a retry message
+with the same sequence number as its own.
 
-The exact order of these four actions in one session that involves them all
-is (x and y denote sequence numbers of RPC calls):
-1) c1->acquire(x)
-2) c2->acquire(y)
-3) s->revoke(x)->c1
-4) c1->release(x)
-5) s->retry(y)->c2
-6) c2->acquire(y)
+I have to admit that the current implementation brings too much
+complications because of little design time before coding.
 
 -----------------
 Bidirectional RPC
@@ -33,7 +33,7 @@ with the server.
 Answers to the Design Questions
 -------------------------------
 
-* Suppose the following happens: Client A releases a lock that client B
+1 Suppose the following happens: Client A releases a lock that client B
   wants. The server sends a retry RPC to client B. Then, before client B
   can send another acquire to the server, client C sends an acquire to the
   server. What happens in this case?
@@ -45,43 +45,41 @@ came earlier than C's, and even might cause starvation. The latter one,
 however, is less efficient because it may take a while for B to respond to
 the server's retry notification.
 
-I'd take the second option in this lab. However, I'd like to place a time
-limit on B for making its acquire request. If the server doesn't receive
-the expected acquire from B, it should move on to the next client in the
-waiting list by sending her a retry.
+I'd take the second option in this lab. However, it would be much better to
+place a time limit on B for making its acquire request. If the server
+doesn't receive the expected acquire from B, it should move on to the next
+client in the waiting list by sending her a retry.
 
-* If the server receives an acquire for a lock that is cached at another
+2 If the server receives an acquire for a lock that is cached at another
   client, what is that the handler going to do? Remember the handler
   shouldn't block or invoke RPCs.
 
 The handler should instaneously give an RETRY reply, put this client into
-the waiting list for that lock, and adds the lock to the revoke list. Sooner
+the waiting list for that lock, and add the lock to the revoke list. Sooner
 or later, the revoke request will be processed and the server will send an
 revoke RPC to the client that is holding the lock at that time.
 
-* If the server receives a release RPC, and there is an outstanding acquire
+There is one exception though. If the wanted lock has more than 5 clients
+waiting for it, the server doesn't send a revoke to the current owner of the
+lock. Instead, it just waits the client to return the lock. It is a protocol
+design for the case described in Question 10 in this section.
+
+3 If the server receives a release RPC, and there is an outstanding acquire
   from another client, what is the handler going to do? Remember again that
   the handler shouldn't block or invoke RPCs.
 
 The ``release'' handler simply marks the specific lock as free and returns
-OK to the RPC caller. While doing this, it ought to obtain the mutex, which
-will cause the the acquire handler to temporarily block, which needs to
-read the lock status. So after the release handler finishes its job, the
-acquire handler will notice that the demanded lock is available.
+OK to the RPC caller. The acquire requests are queued and are serviced on 
+a FIFO basis. See also Q1.
 
-If the acquire handler obtains the mutex before the release handler does,
-then a RETRY will be returned to the lock requester, though the server
-will send a retry to it later (the exact interval depends on the number of
-client that are also waiting for this lock) after noticing that the desired
-lock becomes available.
-
-* If a thread on the client is holding a lock and a second thread calls
+4 If a thread on the client is holding a lock and a second thread calls
   acquire(), what happens? You shouldn't need to send an RPC to the server.
 
 By using a conditional variable, the second thread blocks until that lock
-is released by the thread who currently holds the lock.
+is released by the thread who currently holds the lock. Note that a revoker
+thread may also participate in the competition.
 
-* How do you handle a revoke on a client when a thread on the client is
+5 How do you handle a revoke on a client when a thread on the client is
   holding the lock?
 
 First, the revoke handler on the client should add the revoke message to
@@ -89,22 +87,19 @@ a queue, which is processed by a background thread. Second, the processing
 thread should wait until the thread that holds the lock releases the lock
 locally and signals all the threads waiting for status change of that lock.
 
-* If a thread on the client is holding a lock, and a second thread calls
+6 If a thread on the client is holding a lock, and a second thread calls
   acquire(), but there has also been a revoke for this lock, what happens?
   Other clients trying to acquire the lock should have a fair chance of
   obtaining it; if two threads on the current node keep competing for the
   lock, the node should not hold the lock forever.
 
-Whenever the status of a lock changes (e.g., from LOCKED to FREE or from
-FREE to REVOKED), certain conditional variables should be signaled.
-
-The revoker thread should compete with other local threads for the lock.
+The revoker thread competes with other local threads for the lock.
 Sophisticated mechanisms may be employed to provide better fairness, e.g.
 local threads that want to obtain the lock may have higher priorities
 initially, but should be penalized if the lock is staying locally for too
 long in order to give other clients a chance.
 
-* How do you handle a retry showing up on the client before the response on the corresponding acquire?
+7 How do you handle a retry showing up on the client before the response on the corresponding acquire?
 
 I think this is actually a trivial case to consider. The only thing we
 should care about is whether this retry corresponds to the outstanding
@@ -122,19 +117,13 @@ blocked after it receives RETRY .
 The implication is that the requested lock becomes available right after the
 server returns a RETRY to the client.
 
-* How do you handle a revoke showing up on the client before the response
+8 How do you handle a revoke showing up on the client before the response
   on the corresponding acquire?
 
-The client should be able to use that lock anyway. The revoke is effective
-only if the status of that lock is not ACQUIRING and the sequence number it
-carries equals to the current last_seq. If a revoke carries a smaller number
-than the current last_seq, it means this revoke is a duplicate and the
-client has already released that lock upon receiving an earlier revoke
-carrying the same sequence number. Further, if we don't allow the server
-to send duplicate revoke messages, then the sequence number of each revoke
-should always equal to last_seq on every client.
+The client should be able to use that lock anyway. The revoker thread waits
+until the lock is used at least once.
 
-* When do you increase a sequence number on the client? Do you have one
+9 When do you increase a sequence number on the client? Do you have one
   sequence number per lock_client object or one per client machine?
 
 The sequence number is incremented each time the lock_client_cache issues
@@ -142,13 +131,17 @@ an acquire RPC to the server. For each lock id, the client can only send an
 acquire to the server if it is not holding that lock. I intend to have one
 sequence number per lock_client.
 
-* If the server grants the lock to a client and it has a number of other
+10 If the server grants the lock to a client and it has a number of other
   clients also interested in that lock, you may want to indicate in the
   reply to the acquire that the client should return the lock to the server
   as soon as the thread on the client calls release(). How would you keep
   track on the client that the thread's release() also results in the lock
   being returned to the server? (You could alternatively send a revoke RPC
   immediately after granting the lock in this case.) 
+
+When a server grants a lock, it also tells the client the length of the
+waiting queue. If the length is greater than 5 (a hard limit), the client
+will return the lock to the server right after its first release().
 
 ---------------------
 Distributed deadlocks
