@@ -22,6 +22,7 @@ struct lock_t {
   int expected_clt;
   std::deque<client_record> waiting_list;
   bool retry_responded;
+  bool revoke_sent;
   pthread_cond_t retry_responded_cv;
 
   lock_t();

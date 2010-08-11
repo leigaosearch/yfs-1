@@ -1,6 +1,7 @@
 // the caching lock server implementation
 
 #include "lock_server_cache.h"
+#include "jsl_log.h"
 #include <sstream>
 #include <stdio.h>
 #include <unistd.h>
@@ -19,7 +20,7 @@ client_record::client_record(int clt_, int seq_)
 }
 
 lock_t::lock_t()
-  : expected_clt(-1)
+  : expected_clt(-1), retry_responded(false), revoke_sent(false)
 {
   pthread_cond_init(&retry_responded_cv, NULL);
 }
@@ -76,42 +77,56 @@ lock_server_cache::acquire(int clt, int seq, lock_protocol::lockid_t lid,
     int &queue_len)
 {
   lock_protocol::status r;
-  printf("clt %d seq %d acquiring lock %llu\n", clt, seq, lid);
+  jsl_log(JSL_DBG_4, "clt %d seq %d acquiring lock %llu\n", clt, seq, lid);
   pthread_mutex_lock(&m);
   lock_t &l = locks[lid];
   queue_len = l.waiting_list.size();
-  printf("queue len for lock %llu: %d\n", lid, queue_len);
-  printf("[");
-  for (std::deque<client_record>::iterator i = l.waiting_list.begin();
-      i != l.waiting_list.end(); i++) {
-    printf("(%d, %d), ", i->clt, i->seq);
-  }
-  printf("]\n");
+  jsl_log(JSL_DBG_4, "queue len for lock %llu: %d\n", lid, queue_len);
   if (l.owner.clt == -1 && ((queue_len > 0 && l.expected_clt == clt) ||
         queue_len == 0)) {
-    printf("lock %llu is free; granting to clt %d\n", lid, clt);
+    jsl_log(JSL_DBG_4, "lock %llu is free; granting to clt %d\n", lid, clt);
     l.owner.clt = clt;
     l.owner.seq = seq;
     r = lock_protocol::OK;
     if (queue_len != 0) {
-      printf("expected clt %d replied to retry request\n", clt);
+      jsl_log(JSL_DBG_4, "expected clt %d replied to retry request\n", clt);
       l.expected_clt = -1;
       // since there are waiting clients, we have to unfortunately add this
       // lock to the revoke set to get it back
-      revoke_set.insert(lid);
-      pthread_cond_signal(&revoke_cv);
+      if (queue_len < 5) {
+        revoke_set.insert(lid);
+        l.revoke_sent = true;
+        pthread_cond_signal(&revoke_cv);
+      } else {
+        // if the queue has more than 5 clients waiting, we don't need to
+        // to send a revoke because we know the client will soon release
+        // the lock. we just pretend that we have sent a revoke to the owner
+        // of the lock
+        l.revoke_sent = true;
+      }
       //l.retry_responded = true;
       //pthread_cond_signal(&l.retry_responded_cv);
+    } else {
+      // a brand new lock
+      l.revoke_sent = false;
     }
   } else {
     if (queue_len > 0) {
-      printf("clt %d not expected for lock %llu; queued\n", clt, lid);
+      // Note that we don't need to add lid to revoke_set here, because we
+      // already did so for the head of the queue
+      jsl_log(JSL_DBG_4, "clt %d not expected for lock %llu; queued\n", clt,
+          lid);
     } else {
-      printf("queuing clt %d seq %d for lock %llu\n", clt, seq, lid);
+      jsl_log(JSL_DBG_4, "queuing clt %d seq %d for lock %llu\n", clt, seq,
+          lid);
+      // i will be the head of the waiting list
+      if (!l.revoke_sent) {
+        revoke_set.insert(lid);
+        l.revoke_sent = true;
+        pthread_cond_signal(&revoke_cv);
+      }
     }
     l.waiting_list.push_back(client_record(clt, seq));
-    revoke_set.insert(lid);
-    pthread_cond_signal(&revoke_cv);
     r = lock_protocol::RETRY;
   }
   pthread_mutex_unlock(&m);
@@ -126,9 +141,11 @@ lock_server_cache::release(int clt, int seq, lock_protocol::lockid_t lid,
   pthread_mutex_lock(&m);
   if (locks.find(lid) != locks.end() && locks[lid].owner.clt == clt) {
     assert(locks[lid].owner.seq = seq);
-    printf("clt %d released lck %llu at seq %d\n", clt, lid, seq);
+    jsl_log(JSL_DBG_4, "clt %d released lck %llu at seq %d\n", clt, lid,
+        seq);
     locks[lid].owner.clt = -1;
     locks[lid].owner.seq = -1;
+    //locks[lid].revoke_sent = false;
     released_locks.push_back(lid);
     pthread_cond_signal(&release_cv);
   }
@@ -149,7 +166,6 @@ lock_server_cache::subscribe(int clt, std::string id, int &unused)
 {
   lock_protocol::status r = lock_protocol::OK;
   pthread_mutex_lock(&m);
-  printf("got subscription from %s (%d)\n", id.c_str(), clt);
   sockaddr_in dstsock;
   make_sockaddr(id.c_str(), &dstsock);
   rpcc *cl = new rpcc(dstsock);
@@ -182,14 +198,12 @@ lock_server_cache::revoker()
     lock_t &l = locks[lid];
     rpcc *cl = clients[l.owner.clt];
     if (cl) {
-      printf("sending revoke to clt %d seq %d for lck %llu self id: %d\n", l.owner.clt,
-          l.owner.seq, lid, cl->id());
       if (cl->call(rlock_protocol::revoke, lid, l.owner.seq,
             l.waiting_list.size(), unused) != rlock_protocol::OK) {
-        printf("failed to send revoke\n");
+        jsl_log(JSL_DBG_2, "failed to send revoke\n");
       }
     } else {
-      printf("error: client %d didn't subscribe\n", l.owner.clt);
+      jsl_log(JSL_DBG_2, "client %d didn't subscribe\n", l.owner.clt);
     }
     pthread_mutex_unlock(&m);
   }
@@ -212,7 +226,6 @@ lock_server_cache::retryer()
     lock_protocol::lockid_t lid = released_locks.front();
     // XXX warning: this is not fault-tolerant
     released_locks.pop_front();
-    printf("lck %llu was just released\n", lid);
     lock_t &l = locks[lid];
     std::deque<client_record> &wq = l.waiting_list;
     if (!wq.empty()) {
@@ -221,15 +234,14 @@ lock_server_cache::retryer()
       wq.pop_front();
       int cur_seq;
       // TODO place a time limit on the retry for this client
-      printf("telling clt %d to retry on lck %llu (last seq: %d)\n", 
-          cr.clt, lid, cr.seq);
       if (clients[cr.clt]->call(rlock_protocol::retry, lid, cr.seq, cur_seq)
           == rlock_protocol::OK) {
-        printf("successfully sent a retry to clt %d seq %d for lck %llu\n",
-           cr.clt, cr.seq, lid); 
+        jsl_log(JSL_DBG_4,
+            "successfully sent a retry to clt %d seq %d for lck %llu\n",
+            cr.clt, cr.seq, lid); 
       } else {
-        printf("failed to tell client %d to retry on lock %llu\n", 
-            cr.clt, lid);
+        jsl_log(JSL_DBG_2,
+            "failed to tell client %d to retry lock %llu\n", cr.clt, lid);
       }
     }
     pthread_mutex_unlock(&m);

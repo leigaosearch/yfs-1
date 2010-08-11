@@ -149,3 +149,16 @@ sequence number per lock_client.
   track on the client that the thread's release() also results in the lock
   being returned to the server? (You could alternatively send a revoke RPC
   immediately after granting the lock in this case.) 
+
+---------------------
+Distributed deadlocks
+---------------------
+
+To avoid distributed deadlocks, we need to avoid two things:
+1) A server should never block on a condition variable.
+2) No simultaneous bidirectional RPC. That is, a client should not send an
+   RPC to the server while the server is waiting for the reply of an RPC it
+   previously sent to the client. However, I thinkg this requirement can be
+   ignored if we:
+   a) do not hold a mutex on the client side while making an RPC call; and
+   b) use fine-grained locking mechanism.
