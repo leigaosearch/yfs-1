@@ -236,6 +236,11 @@ main(int argc, char *argv[])
       }
     }
 
+    for (int i = 0; i < nt; i++) {
+      delete lc[i];
+    }
+    delete [] lc;
+
     printf ("%s: passed all tests successfully\n", argv[0]);
 
 }

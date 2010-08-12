@@ -30,6 +30,10 @@ main(int argc, char *argv[])
   server.reg(extent_protocol::getattr, &ls, &extent_server::getattr);
   server.reg(extent_protocol::put, &ls, &extent_server::put);
   server.reg(extent_protocol::remove, &ls, &extent_server::remove);
+  server.reg(extent_protocol::pget, &ls, &extent_server::pget);
+  server.reg(extent_protocol::update, &ls, &extent_server::update);
+  server.reg(extent_protocol::resize, &ls, &extent_server::resize);
+  server.reg(extent_protocol::poke, &ls, &extent_server::poke);
 
   while(1)
     sleep(1000);
