@@ -147,7 +147,7 @@ will return the lock to the server right after its first release().
 Distributed deadlocks
 ---------------------
 
-To avoid distributed deadlocks, we need to avoid two things:
+To avoid distributed deadlocks, we need to pay attention to three things:
 1) A server should never block on a condition variable.
 2) No simultaneous bidirectional RPC. That is, a client should not send an
    RPC to the server while the server is waiting for the reply of an RPC it
@@ -155,3 +155,32 @@ To avoid distributed deadlocks, we need to avoid two things:
    ignored if we:
    a) do not hold a mutex on the client side while making an RPC call; and
    b) use fine-grained locking mechanism.
+3) It's better not to use a global mutex for rpc handlers, for it's prone to
+   deadlocks.
+
+-------------------
+Caching performance
+-------------------
+
+By using the rpc statistics, the experimenal results of test-lab-4-c are
+shown below:
+
++------------------+------------------+
+| 0x7001 (acquire) | 0x7002 (release) |
++==================+==================+
+|      2399        +        2399      |
++------------------+------------------+
+|       898        +         348      |
++------------------+------------------+
+
+The first row is the rpc stats in the original un-cached implementation, and
+the second row corresponds to the cached version developed in this lab. Note
+that for cached lock server/client, these numbers may vary if we run the
+test several times. Programs run in a non-deterministic way in race
+conditions. But the numbers listed here should well reflect the performance
+magnititude.
+
+As we can see, the number of release RPC is greatly reduced, but that of
+acquire has only slight reduction. The reason could be we used a strict FIFO
+policy to serve acquire requests, which results in many ``retrying''
+acquire() calls.
