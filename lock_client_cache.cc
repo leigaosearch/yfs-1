@@ -77,6 +77,7 @@ lock_client_cache::lock_client_cache(std::string xdst,
   last_port = rlock_port;
 
   pthread_mutex_init(&m, NULL);
+  pthread_mutex_init(&revoke_m, NULL);
   pthread_cond_init(&revoke_cv, NULL);
 
   rlsrpc = new rpcs(rlock_port);
@@ -159,7 +160,7 @@ lock_client_cache::releaser()
     // if remote release fails, we leave this lock in the revoke_map, which
     // will be released in a later attempt
     pthread_mutex_unlock(&m);
-    //usleep(500);
+    usleep(500);
   }
 }
 
@@ -293,21 +294,18 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
 }
 
 rlock_protocol::status
-lock_client_cache::revoke(lock_protocol::lockid_t lid, int seq,
-    int waiting_clt, int &unused)
+lock_client_cache::revoke(lock_protocol::lockid_t lid, int seq, int &unused)
 {
   rlock_protocol::status r = rlock_protocol::OK;
 
   jsl_log(JSL_DBG_4,
-      "[%d] server request to revoke lck %llu at seq %d queuelen: %d\n",
-      cl->id(), lid, seq, waiting_clt);
+      "[%d] server request to revoke lck %llu at seq %d\n", cl->id(), lid,
+      seq);
   // we do nothing but pushing back the lock id to the revoke queue
-  pthread_mutex_lock(&m);
+  pthread_mutex_lock(&revoke_m);
   revoke_map[lid] = seq;
-  cached_lock &l = cached_locks[lid];
-  l.waiting_clients = waiting_clt;
   pthread_cond_signal(&revoke_cv);
-  pthread_mutex_unlock(&m);
+  pthread_mutex_unlock(&revoke_m);
   return r;
 }
 

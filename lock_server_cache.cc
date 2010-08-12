@@ -198,14 +198,15 @@ lock_server_cache::revoker()
     lock_t &l = locks[lid];
     rpcc *cl = clients[l.owner.clt];
     if (cl) {
-      if (cl->call(rlock_protocol::revoke, lid, l.owner.seq,
-            l.waiting_list.size(), unused) != rlock_protocol::OK) {
+      if (cl->call(rlock_protocol::revoke, lid, l.owner.seq, unused)
+          != rlock_protocol::OK) {
         jsl_log(JSL_DBG_2, "failed to send revoke\n");
       }
     } else {
       jsl_log(JSL_DBG_2, "client %d didn't subscribe\n", l.owner.clt);
     }
     pthread_mutex_unlock(&m);
+    usleep(500);
   }
 }
 
@@ -228,23 +229,28 @@ lock_server_cache::retryer()
     released_locks.pop_front();
     lock_t &l = locks[lid];
     std::deque<client_record> &wq = l.waiting_list;
+    client_record *cr = NULL;
     if (!wq.empty()) {
-      client_record &cr = wq.front();
-      l.expected_clt = cr.clt;
+      cr = &wq.front();
+      l.expected_clt = cr->clt;
       wq.pop_front();
-      int cur_seq;
-      // TODO place a time limit on the retry for this client
-      if (clients[cr.clt]->call(rlock_protocol::retry, lid, cr.seq, cur_seq)
-          == rlock_protocol::OK) {
-        jsl_log(JSL_DBG_4,
-            "successfully sent a retry to clt %d seq %d for lck %llu\n",
-            cr.clt, cr.seq, lid); 
-      } else {
-        jsl_log(JSL_DBG_2,
-            "failed to tell client %d to retry lock %llu\n", cr.clt, lid);
-      }
     }
     pthread_mutex_unlock(&m);
+
+    if (cr) {
+      int cur_seq;
+      // TODO place a time limit on the retry for this client
+      if (clients[cr->clt]->call(rlock_protocol::retry, lid, cr->seq,
+            cur_seq) == rlock_protocol::OK) {
+        jsl_log(JSL_DBG_4,
+            "successfully sent a retry to clt %d seq %d for lck %llu\n",
+            cr->clt, cr->seq, lid); 
+      } else {
+        jsl_log(JSL_DBG_2,
+            "failed to tell client %d to retry lock %llu\n", cr->clt, lid);
+      }
+    }
+    //usleep(500);
   }
 }
 

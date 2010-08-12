@@ -125,7 +125,10 @@ class lock_client_cache : public lock_client {
 
   // key: lock id; value: seq no. of the corresponding acquire
   std::map<lock_protocol::lockid_t, int> revoke_map;
+  // global lock
   pthread_mutex_t m;
+  // controls access to the revoke_map
+  pthread_mutex_t revoke_m;
   pthread_cond_t revoke_cv;
 
   int do_acquire(lock_protocol::lockid_t);
@@ -138,7 +141,7 @@ class lock_client_cache : public lock_client {
   virtual lock_protocol::status release(lock_protocol::lockid_t);
   void releaser();
 
-  rlock_protocol::status revoke(lock_protocol::lockid_t, int, int, int &);
+  rlock_protocol::status revoke(lock_protocol::lockid_t, int, int &);
   // tell this client to retry requesting the lock in which this client
   // was interest when that lock just became available
   rlock_protocol::status retry(lock_protocol::lockid_t, int, int &);
