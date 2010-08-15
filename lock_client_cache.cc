@@ -91,18 +91,15 @@ lock_client_cache::lock_client_cache(std::string xdst,
 
 lock_client_cache::~lock_client_cache()
 {
-  int unused;
   pthread_mutex_lock(&m);
   std::map<lock_protocol::lockid_t, cached_lock>::iterator itr;
   for (itr = cached_locks.begin(); itr != cached_locks.end(); ++itr) {
     if (itr->second.status() == cached_lock::FREE) {
-      cl->call(lock_protocol::release, cl->id(), itr->second.seq, itr->first,
-          unused);
+      do_release(itr->first);
     } else if (itr->second.status() == cached_lock::LOCKED
            && pthread_self() == itr->second.owner) {
       release(itr->first);
-      cl->call(lock_protocol::release, cl->id(), itr->second.seq, itr->first,
-          unused);
+      do_release(itr->first);
     }
     // TODO what about other states?
   }
@@ -121,7 +118,6 @@ lock_client_cache::releaser()
   // send a release RPC.
   running = true;
   while (running) {
-    int unused;
     pthread_mutex_lock(&m);
     while (revoke_map.empty()) {
       pthread_cond_wait(&revoke_cv, &m);
@@ -151,8 +147,7 @@ lock_client_cache::releaser()
     }
     jsl_log(JSL_DBG_4, "[%d] calling release RPC for lock %llu\n", cl->id(),
         lid);
-    if (cl->call(lock_protocol::release, cl->id(), l.seq, lid, unused) ==
-        lock_protocol::OK) {
+    if (do_release(lid) == lock_protocol::OK) {
       // we set the lock's status to NONE instead of erasing it
       l.set_status(cached_lock::NONE);
       revoke_map.erase(lid);
@@ -277,8 +272,7 @@ lock_client_cache::release(lock_protocol::lockid_t lid)
           "[%d] more than 5 clients waiting on lck %llu; release now\n",
           cl->id(), lid);
       revoke_map.erase(lid);
-      int unused;
-      cl->call(lock_protocol::release, cl->id(), l.seq, lid, unused);
+      do_release(lid);
       // mark this lock as NONE anyway
       l.set_status(cached_lock::NONE);
     } else {
@@ -352,6 +346,18 @@ lock_client_cache::do_acquire(lock_protocol::lockid_t lid)
     l.can_retry = false;
   }
   pthread_cond_signal(&l.got_acq_reply_cv);
+  return r;
+}
+
+int
+lock_client_cache::do_release(lock_protocol::lockid_t lid)
+{
+  int r, unused;
+  cached_lock &l = cached_locks[lid];
+  if (lu) {
+    lu->dorelease(lid);
+  }
+  r = cl->call(lock_protocol::release, cl->id(), l.seq, lid, unused);
   return r;
 }
 

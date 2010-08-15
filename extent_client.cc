@@ -212,15 +212,12 @@ void
 extent_client::flush(void)
 {
   pthread_mutex_lock(&cache_m);
-  std::list<extent_protocol::extentid_t> to_clear;
-  std::list<extent_protocol::extentid_t>::iterator clear_itr;
   std::map<extent_protocol::extentid_t, extent_t>::iterator it; 
   for (it = cache.begin(); it != cache.end(); ++it) {
     int u;
     extent_protocol::extentid_t eid = it->first;
     extent_t &extent = it->second;
     if (extent.removed) {
-      to_clear.push_back(eid); 
       if (cl->call(extent_protocol::remove, eid, u) != extent_protocol::OK) {
         printf("unable to remove eid %llu\n", eid);
       }
@@ -232,8 +229,8 @@ extent_client::flush(void)
       }
     }
   }
-  for (clear_itr = to_clear.begin(); clear_itr != to_clear.end(); ++clear_itr) {
-    cache.erase(*clear_itr);
+  for (it = cache.begin(); it != cache.end(); ++it) {
+    cache.erase(it);
   }
   pthread_mutex_unlock(&cache_m);
 }
@@ -241,7 +238,7 @@ extent_client::flush(void)
 void
 extent_client::dorelease(lock_protocol::lockid_t lid)
 {
-
+  this->flush();
 }
 
 void

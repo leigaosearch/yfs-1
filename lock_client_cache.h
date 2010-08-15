@@ -133,6 +133,7 @@ class lock_client_cache : public lock_client {
   pthread_cond_t revoke_cv;
 
   int do_acquire(lock_protocol::lockid_t);
+  int do_release(lock_protocol::lockid_t);
 
  public:
   static int last_port;
