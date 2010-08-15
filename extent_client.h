@@ -9,16 +9,33 @@
 
 class extent_client {
  private:
+
+  struct extent_t {
+    std::string buf;
+    extent_protocol::attr attr;
+    bool dirty;
+    bool removed;
+
+    extent_t();
+  };
+
   rpcc *cl;
+  std::map<extent_protocol::extentid_t, extent_t> cache;
+  pthread_mutex_t cache_m;
+
+  extent_protocol::status _fetch(extent_protocol::extentid_t eid);
+  void _put(extent_protocol::extentid_t eid, std::string &buf);
+  void _put(extent_protocol::extentid_t eid, const char * buf);
 
  public:
   extent_client(std::string dst);
+  ~extent_client();
 
   extent_protocol::status get(extent_protocol::extentid_t eid, 
 			      std::string &buf);
   extent_protocol::status getattr(extent_protocol::extentid_t eid, 
 				  extent_protocol::attr &a);
-  extent_protocol::status put(extent_protocol::extentid_t eid, std::string buf);
+  extent_protocol::status put(extent_protocol::extentid_t, std::string);
   extent_protocol::status remove(extent_protocol::extentid_t eid);
   extent_protocol::status pget(extent_protocol::extentid_t id, off_t offset,
           size_t nbytes, std::string &buf);

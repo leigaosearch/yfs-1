@@ -1,0 +1,6 @@
+In addition to put()/get(), we have added more interfaces to the
+extent_server in previous labs because of efficiency considerations. For
+example, pget() only fetches partial data from the specified extent.
+
+This design conflicts with the caching. So we move these operations, such as
+pget() and resize(), from extent_server to extent_client.
