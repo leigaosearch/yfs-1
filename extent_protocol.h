@@ -14,6 +14,7 @@ class extent_protocol {
     put = 0x6001,
     get,
     getattr,
+    setattr,
     remove, /* removes a specified buf */
     pget, /* get partial content of a buf */
     update, /* update specified range of a buf */

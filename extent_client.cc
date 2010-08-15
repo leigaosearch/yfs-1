@@ -124,6 +124,7 @@ extent_client::pget(extent_protocol::extentid_t eid, off_t offset,
     size_t actual_read = can_read > nbytes ? nbytes : can_read;
     buf = entry.buf.substr(offset, actual_read);
     time((time_t *)&entry.attr.atime);
+    entry.dirty = true;
     r = extent_protocol::OK;
   } else {
     r = extent_protocol::IOERR; 
@@ -153,9 +154,9 @@ extent_client::update(extent_protocol::extentid_t eid, std::string &data,
     entry.buf.resize(end);
   }
   entry.buf.replace(offset, nbytes, data);
-  entry.dirty = true;
   time((time_t *)&entry.attr.mtime);
   bytes_written = nbytes;
+  entry.dirty = true;
   pthread_mutex_unlock(&cache_m);
   return r;
 }
@@ -205,6 +206,42 @@ extent_client::_fetch(extent_protocol::extentid_t eid)
     }
   }
   return ret;
+}
+
+void
+extent_client::flush(void)
+{
+  pthread_mutex_lock(&cache_m);
+  std::list<extent_protocol::extentid_t> to_clear;
+  std::list<extent_protocol::extentid_t>::iterator clear_itr;
+  std::map<extent_protocol::extentid_t, extent_t>::iterator it; 
+  for (it = cache.begin(); it != cache.end(); ++it) {
+    int u;
+    extent_protocol::extentid_t eid = it->first;
+    extent_t &extent = it->second;
+    if (extent.removed) {
+      to_clear.push_back(eid); 
+      if (cl->call(extent_protocol::remove, eid, u) != extent_protocol::OK) {
+        printf("unable to remove eid %llu\n", eid);
+      }
+    } else if (extent.dirty) {
+      if (cl->call(extent_protocol::put, eid, extent.buf, u) !=
+          extent_protocol::OK || cl->call(extent_protocol::setattr, eid,
+            extent.attr, u) != extent_protocol::OK) {
+        printf("unable to update extent server for %llu\n", eid);
+      }
+    }
+  }
+  for (clear_itr = to_clear.begin(); clear_itr != to_clear.end(); ++clear_itr) {
+    cache.erase(*clear_itr);
+  }
+  pthread_mutex_unlock(&cache_m);
+}
+
+void
+extent_client::dorelease(lock_protocol::lockid_t lid)
+{
+
 }
 
 void

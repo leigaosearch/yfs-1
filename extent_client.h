@@ -5,9 +5,10 @@
 
 #include <string>
 #include "extent_protocol.h"
+#include "lock_client_cache.h"
 #include "rpc.h"
 
-class extent_client {
+class extent_client : public lock_release_user {
  private:
 
   struct extent_t {
@@ -44,6 +45,10 @@ class extent_client {
   extent_protocol::status resize(extent_protocol::extentid_t eid,
       off_t new_size);
   extent_protocol::status poke(extent_protocol::extentid_t eid);
+
+  void flush(void);
+
+  virtual void dorelease(lock_protocol::lockid_t lid);
 };
 
 #endif 

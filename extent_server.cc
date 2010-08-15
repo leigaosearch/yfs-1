@@ -51,6 +51,22 @@ int extent_server::getattr(extent_protocol::extentid_t id, extent_protocol::attr
   return r;
 }
 
+int
+extent_server::setattr(extent_protocol::extentid_t id, extent_protocol::attr
+    a, int &unused)
+{
+  extent_protocol::status r = extent_protocol::NOENT;
+  if (extent_store.find(id) != extent_store.end()){
+    extent_entry &entry = extent_store[id];
+    entry.attr.size = a.size;
+    entry.attr.atime = a.atime;
+    entry.attr.mtime = a.atime;
+    entry.attr.ctime = a.atime;
+    r = extent_protocol::OK;
+  }
+  return r;
+}
+
 int extent_server::remove(extent_protocol::extentid_t id, int &)
 {
   int ret = extent_store.erase(id); 
@@ -121,8 +137,7 @@ int extent_server::poke(extent_protocol::extentid_t id, int &unused)
   return ret;
 }
 
-void extent_server::_put(extent_protocol::extentid_t id,
-    std::string &buf)
+void extent_server::_put(extent_protocol::extentid_t id, std::string &buf)
 {
   bool updating = extent_store.find(id) != extent_store.end();
   extent_entry &entry = extent_store[id];
