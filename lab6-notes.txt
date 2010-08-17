@@ -1,0 +1,35 @@
+------
+Design
+------
+
+In addition to put()/get(), we have added more interfaces to the
+extent_server in previous labs because of efficiency considerations. For
+example, pget() only fetches partial data from the specified extent.
+
+This design conflicts with the caching. So we move these operations, such as
+pget() and resize(), from extent_server to extent_client.
+
+
+-----------------
+Cache consistency
+-----------------
+
+The consistency model in this lab is a strict one. The update by a process is
+guaranteed to be seen by all processes after it completes. This does not cause
+much overhead because we already enforced exclusive locking for every extent,
+and caching consistency is done by a lock releasing hook.
+
+
+-----------
+Performance
+-----------
+
+The lab specification says that the goal is to have about ``a dozen of puts and
+at most a few hundred gets''. I don't think that is possible unless we don't
+change atime of files when accessing them. Otherwise, each read operation will
+have to update the meta data of the extents, which implies an rpc. And there
+are many read()'s in the test, at least more than a dozen.
+
+Another strange thing is that the sample test output displays three rpc numbers.
+I think three rpc functions is not sufficient for a working YFS. At least we
+need get(), put(), getattr(), and remove(). Maybe that's just a mock output.

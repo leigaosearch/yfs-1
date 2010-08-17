@@ -69,6 +69,7 @@
 #include <netinet/tcp.h>
 #include <time.h>
 #include <netdb.h>
+#include <algorithm>
 
 #include "jsl_log.h"
 #include "gettime.h"
@@ -369,7 +370,7 @@ rpcc::update_xid_rep(unsigned int xid)
 			goto compress;
 		}
 	}
-	xid_rep_window_.push_back(xid);
+    xid_rep_window_.push_back(xid);
 
 compress:
 	it = xid_rep_window_.begin();
@@ -461,8 +462,8 @@ rpcs::updatestat(unsigned int proc)
 			if (clt->second.size() > maxrep)
 				maxrep = clt->second.size();
 		}
-		jsl_log(JSL_DBG_1, "REPLY WINDOW: clients %d total reply %d max per client %d\n", 
-				reply_window_.size(), totalrep, maxrep);
+		jsl_log(JSL_DBG_1, "REPLY WINDOW: clients %lu total reply %d max per client %d\n", 
+				(unsigned long)reply_window_.size(), totalrep, maxrep);
 		curr_counts_ = counting_;
 	}
 }
@@ -611,6 +612,16 @@ rpcs::add_reply(unsigned int clt_nonce, unsigned int xid,
 		char *b, int sz)
 {
 	ScopedLock rwl(&reply_window_m_);
+    std::list<reply_t> &rw = reply_window_[clt_nonce];
+    std::list<reply_t>::iterator itr;
+    for (itr = rw.begin(); itr != rw.end(); ++itr) {
+        if (itr->xid == xid) {
+            itr->buf = b;
+            itr->sz = sz;
+            itr->cb_present = true;
+            return;
+        }
+    }
 }
 
 void
@@ -629,13 +640,55 @@ rpcs::free_reply_window(void)
 	reply_window_.clear();
 }
 
+// xid_rep indicates that the client has received all replies whose
+// xid <= xid_rep
 rpcs::rpcstate_t 
 rpcs::checkduplicate_and_update(unsigned int clt_nonce, unsigned int xid,
 		unsigned int xid_rep, char **b, int *sz)
 {
 	ScopedLock rwl(&reply_window_m_);
 
-	return NEW;
+    rpcstate_t r = NEW;
+
+    std::list<reply_t> &xid_list = reply_window_[clt_nonce];
+    std::list<reply_t>::iterator itr;
+    if (!xid_list.empty() && xid < xid_list.front().xid) {
+        r = FORGOTTEN;
+    } else {
+        for (itr = xid_list.begin(); itr != xid_list.end(); ++itr) {
+            if (itr->xid == xid) {
+                // a duplicate
+                if (itr->cb_present) {
+                    r = DONE;
+                    *b = itr->buf;
+                    *sz = itr->sz;
+                } else {
+                    r = INPROGRESS;
+                }
+            }   
+        }
+    }
+
+    if (r == NEW) {
+        reply_t r(xid);
+        r.cb_present = false; // explicitly set this field to false
+        for (itr = xid_list.begin(); itr != xid_list.end(); ++itr) {
+            if (itr->xid > xid) {
+                xid_list.insert(itr, r);
+                break;
+            }
+        }
+        if (xid_list.empty() || xid_list.back().xid < xid) {
+            xid_list.push_back(r);
+        }
+    }
+
+    // we can safely forget all those replies whose xid < xid_rep (NOT  <=)
+    while (xid_list.front().xid < xid_rep) {
+        xid_list.pop_front();
+    }
+
+	return r;
 }
 
 //rpc handler
@@ -734,6 +787,14 @@ operator<<(marshall &m, unsigned long long x)
 	m << (unsigned int) (x >> 32);
 	m << (unsigned int) x;
 	return m;
+}
+
+marshall &
+operator<<(marshall &m, long long int x)
+{
+  m << (unsigned int) ( x >> 32);
+  m << (unsigned int) x;
+  return m;
 }
 
 void
@@ -845,6 +906,15 @@ operator>>(unmarshall &u, unsigned long long &x)
 	u >> l;
 	x = l | ((unsigned long long) h << 32);
 	return u;
+}
+
+unmarshall &
+operator>>(unmarshall &u, long long int &x)
+{
+  unsigned long long temp;
+  u >> temp;
+  x = static_cast<long long int>(temp);
+  return u;
 }
 
 unmarshall &

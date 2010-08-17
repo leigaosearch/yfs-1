@@ -34,7 +34,7 @@ CXX = g++
 
 lab:  lab7
 lab1: rpc/rpctest lock_server lock_tester lock_demo
-lab2: yfs_client extent_server
+lab2: yfs_client extent_server lock_server
 lab3: yfs_client extent_server
 lab4: yfs_client extent_server lock_server test-lab-4-b test-lab-4-c
 lab5: yfs_client extent_server lock_server lock_tester test-lab-4-b\
