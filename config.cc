@@ -305,6 +305,7 @@ config::heartbeat(std::string m, unsigned vid, int &r)
   if (vid == myvid) {
     ret = paxos_protocol::OK;
   } else if (pro->isrunning()) {
+    printf("proposer is running!!\n");
     assert (vid == myvid + 1 || vid + 1 == myvid);
     ret = paxos_protocol::OK;
   } else {
