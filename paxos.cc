@@ -315,7 +315,6 @@ acceptor::acceptreq(std::string src, paxos_protocol::acceptarg a, int &r)
     pthread_mutex_unlock(&pxs_mutex);
     return paxos_protocol::OK;
   } else {
-    printf("old instance (accept)!\n");
     r = 0;
     pthread_mutex_unlock(&pxs_mutex);
     return paxos_protocol::ERR;
