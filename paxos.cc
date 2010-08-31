@@ -183,8 +183,7 @@ proposer::prepare(unsigned instance, std::vector<std::string> &accepts,
             v = resp.v_a;
           }
         } else {
-          // TODO handle this case
-          printf("old instance\n");
+          acc->commit(instance, resp.v_a);
         }
       } else {
         printf("failed to call preparereq\n");
@@ -281,12 +280,14 @@ acceptor::preparereq(std::string src, paxos_protocol::preparearg a,
   pthread_mutex_lock(&pxs_mutex);
   if (a.instance <= instance_h) {
     r.oldinstance = 1;
+    r.v_a = value(a.instance);
   } else {
     r.oldinstance = 0;
     if (a.n > n_h) {
       // i promise not to accept proposals that are <= yours
       r.accept = 1;
       n_h = a.n;
+      l->loghigh(n_h);
     } else {
       // i won't accept your proposal because you have n <= n_h
       r.accept = 0;
@@ -308,6 +309,7 @@ acceptor::acceptreq(std::string src, paxos_protocol::acceptarg a, int &r)
     if (a.n >= n_h) {
       v_a = a.v;
       n_a = a.n;
+      l->logprop(a.n, v_a);
       r = 1;
     } else {
       r = 0;

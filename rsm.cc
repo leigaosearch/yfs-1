@@ -229,6 +229,9 @@ rsm::commit_change()
   pthread_mutex_lock(&rsm_mutex);
   // Lab 7:
   // - If I am not part of the new view, start recovery
+  if (!cfg->ismember(cfg->myaddr())) {
+    pthread_cond_signal(&recovery_cond);
+  }
   pthread_mutex_unlock(&rsm_mutex);
 }
 
@@ -308,7 +311,6 @@ rsm::joinreq(std::string m, viewstamp last, rsm_protocol::joinres &r)
     // Lab 7: invoke config to create a new view that contains m
     if (cfg->add(m)) {
       printf("joinreq: success\n");
-      r.log = cfg->dump();
     }
   }
   assert (pthread_mutex_unlock(&rsm_mutex) == 0);
