@@ -1,0 +1,22 @@
+------------
+Heart Beater
+------------
+
+The heart beater in lab 7 works in this scheme:
+
+  * the node with the smallest id pings all of the rest ones
+  * other nodes only ping the ``smallest'' node
+
+This approach avoids the n!-magnititude traffic of the naive all-ping-all way. The correctness is also maintained:
+
+  * if the ``smallest'' node fails, there is a fairly large chance that another node will notice this.
+  * if any other node fails, the ``smallest'' node figures it out.
+
+If a node detects that another node has failed, does he still have to send a
+prepare message to the latter?
+
+--------------------
+Configuration Server
+--------------------
+
+The configuration server manages a series of views.

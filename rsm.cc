@@ -19,7 +19,7 @@
 // When a new node starts, the recovery thread is in charge of joining
 // the RSM.  It will collect the internal RSM state from the primary;
 // the primary asks the config module to add the new node and returns
-// to the joining the internal RSM state (e.g., paxos log). Since
+// to the joining node the internal RSM state (e.g., paxos log). Since
 // there is only one primary, all joins happen in well-defined total
 // order.
 //
@@ -258,6 +258,10 @@ rsm::commit_change()
   pthread_mutex_lock(&rsm_mutex);
   // Lab 7:
   // - If I am not part of the new view, start recovery
+  set_primary();
+  if (!cfg->ismember(cfg->myaddr())) {
+    pthread_cond_signal(&recovery_cond);
+  }
   pthread_mutex_unlock(&rsm_mutex);
 }
 
@@ -350,9 +354,16 @@ rsm::joinreq(std::string m, viewstamp last, rsm_protocol::joinres &r)
     r.log = cfg->dump();
   } else if (cfg->myaddr() != primary) {
     printf("joinreq: busy\n");
+    // shouldn't we return NOTPRIMARY here??
     ret = rsm_client_protocol::BUSY;
   } else {
     // Lab 7: invoke config to create a new view that contains m
+    if (cfg->add(m)) {
+      printf("joinreq: success\n");
+      r.log = cfg->dump();
+    } else {
+      ret = rsm_client_protocol::ERR;
+    }
   }
   assert (pthread_mutex_unlock(&rsm_mutex) == 0);
   return ret;
