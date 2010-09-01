@@ -12,6 +12,9 @@ This approach avoids the n!-magnititude traffic of the naive all-ping-all way. T
   * if the ``smallest'' node fails, there is a fairly large chance that another node will notice this.
   * if any other node fails, the ``smallest'' node figures it out.
 
+If a node detects that another node has failed, does he still have to send a
+prepare message to the latter?
+
 --------------------
 Configuration Server
 --------------------

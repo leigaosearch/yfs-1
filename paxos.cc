@@ -135,8 +135,8 @@ proposer::run(int instance, std::vector<std::string> newnodes, std::string newv)
 
         breakpoint2();
 
-        // qy: why do we send decide message only to those who accepted our
-        // proposal?
+        // qy: we send decide message only to those who accepted our
+        // proposal, because that's enough for a consensus
         decide(instance, accepts, v);
         r = true;
       } else {
