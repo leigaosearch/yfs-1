@@ -78,6 +78,7 @@ int extent_server::pget(extent_protocol::extentid_t id, off_t offset,
       size_t can_read = len - offset;
       size_t actual_read = can_read > nbytes ? nbytes : can_read;
       buf = entry.buf.substr(offset, actual_read);
+      time((time_t *)&entry.attr.atime);
       ret = extent_protocol::OK;
     } else {
       ret = extent_protocol::IOERR; 
@@ -102,6 +103,7 @@ int extent_server::update(extent_protocol::extentid_t id, std::string data,
       entry.buf.resize(end);
     }
     entry.buf.replace(offset, nbytes, data);
+    time((time_t *)&entry.attr.mtime);
     bytes_written = nbytes;
     ret = extent_protocol::OK;
   }
@@ -117,8 +119,20 @@ int extent_server::resize(extent_protocol::extentid_t id, off_t new_size,
   if (extent_store.find(id) != extent_store.end()) {
     extent_entry &entry = extent_store[id];
     entry.buf.resize(new_size);
+    entry.attr.mtime = time(NULL);
     ret = extent_protocol::OK;
     r = new_size;
+  }
+  pthread_mutex_unlock(&m);
+  return ret;
+}
+
+int extent_server::poke(extent_protocol::extentid_t id, int &unused)
+{
+  extent_protocol::status ret = extent_protocol::NOENT;
+  pthread_mutex_lock(&m);
+  if (extent_store.find(id) != extent_store.end()) {
+    ret = extent_protocol::OK;
   }
   pthread_mutex_unlock(&m);
   return ret;
@@ -128,8 +142,14 @@ int extent_server::resize(extent_protocol::extentid_t id, off_t new_size,
 void extent_server::_put(extent_protocol::extentid_t id,
     std::string &buf)
 {
+  bool updating = extent_store.find(id) != extent_store.end();
   extent_entry &entry = extent_store[id];
   entry.buf = buf;
+  if (updating) {
+    time((time_t *)&entry.attr.atime);
+  } else {
+    memset(&entry.attr, 0, sizeof(extent_protocol::attr));
+  }
   time((time_t *)&entry.attr.mtime);
   time((time_t *)&entry.attr.ctime);
 }

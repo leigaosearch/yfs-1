@@ -76,3 +76,10 @@ extent_client::resize(extent_protocol::extentid_t eid, off_t new_size)
   return cl->call(extent_protocol::resize, eid, new_size, r);
 }
 
+extent_protocol::status
+extent_client::poke(extent_protocol::extentid_t eid)
+{
+  int unused;
+  return cl->call(extent_protocol::poke, eid, unused);
+}
+

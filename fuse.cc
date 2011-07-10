@@ -83,7 +83,7 @@ fuseserver_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set
 {
   printf("fuseserver_setattr 0x%x\n", to_set);
   if (FUSE_SET_ATTR_SIZE & to_set) {
-    printf("   fuseserver_setattr set size to %ld\n", attr->st_size);
+    printf("   fuseserver_setattr set size to %lld\n", attr->st_size);
     struct stat st;
     // You fill this in
     yfs_client::inum inum = ino;
@@ -113,7 +113,7 @@ fuseserver_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     // operations in a single transaction
     yfs_client::fileinfo fin;
     if (yfs->getfile(inum, fin) == yfs_client::OK) {
-      if (off < 0 || off >= fin.size) {
+      if (off < 0 || off >= (off_t)fin.size) {
         fuse_reply_err(req, EINVAL);
       } else {
         //char *buf = (char *)malloc(sizeof(char) * (fin.size - off));
@@ -161,10 +161,12 @@ fuseserver_createhelper(fuse_ino_t parent, const char *name,
   // Choose an inum and append it to the parent's entry table
   int r = yfs_client::NOENT;
 
-  fuse_ino_t new_ino = (fuse_ino_t)yfs->creat(parent, name);
-  if (new_ino > 0) {
+  yfs_client::inum entry_inum;
+  r = yfs->create(parent, name, entry_inum);
+  if (r == yfs_client::OK || r == yfs_client::FEXIST) {
+    // it's okay for creat() that a file already exists
     memset(e, 0, sizeof(struct fuse_entry_param));
-    e->ino = new_ino;
+    e->ino = (fuse_ino_t)entry_inum;
     r = getattr(e->ino, e->attr);
   }
   return r;
@@ -175,7 +177,8 @@ fuseserver_create(fuse_req_t req, fuse_ino_t parent, const char *name,
    mode_t mode, struct fuse_file_info *fi)
 {
   struct fuse_entry_param e;
-  if( fuseserver_createhelper( parent, name, mode, &e ) == yfs_client::OK ) {
+  yfs_client::status r = fuseserver_createhelper(parent, name, mode, &e);
+  if( r == yfs_client::OK ) {
     fuse_reply_create(req, &e, fi);
   } else {
     fuse_reply_err(req, ENOENT);
@@ -305,11 +308,26 @@ fuseserver_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   struct fuse_entry_param e;
 
   // You fill this in
-#if 0
-  fuse_reply_entry(req, &e);
-#else
-  fuse_reply_err(req, ENOSYS);
-#endif
+  memset(&e, 0, sizeof(e));
+  yfs_client::inum inum = parent;
+  if (yfs->isdir(inum)) {
+    yfs_client::inum new_inum;
+    yfs_client::status ret = yfs->mkdir(parent, name, new_inum);
+    if (ret == yfs_client::OK) {
+      fuse_ino_t new_ino = (fuse_ino_t)new_inum;
+      e.ino = new_ino;
+      getattr(new_ino, e.attr);
+      fuse_reply_entry(req, &e);
+    } else if (ret == yfs_client::FEXIST) {
+      fuse_reply_err(req, EEXIST);
+    } else if (ret == yfs_client::NOENT) {
+      fuse_reply_err(req, ENOENT);
+    } else {
+      fuse_reply_err(req, ENOSYS);
+    }
+  } else {
+    fuse_reply_err(req, ENOTDIR);
+  }
 }
 
 void
@@ -318,8 +336,11 @@ fuseserver_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 
   // You fill this in
   // Success:	fuse_reply_err(req, 0);
-  // Not found:	fuse_reply_err(req, ENOENT);
-  fuse_reply_err(req, ENOSYS);
+  if (yfs->remove(parent, name) == yfs_client::OK) {
+    fuse_reply_err(req, 0);
+  } else {
+    fuse_reply_err(req, ENOENT);
+  }
 }
 
 void

@@ -26,6 +26,7 @@ class extent_client {
       std::string &data, off_t offset, size_t &bytes_written);
   extent_protocol::status resize(extent_protocol::extentid_t eid,
       off_t new_size);
+  extent_protocol::status poke(extent_protocol::extentid_t eid);
 };
 
 #endif 
